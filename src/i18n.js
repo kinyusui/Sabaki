@@ -1,74 +1,99 @@
 const nativeRequire = eval('require')
 
-const {remote} = require('electron')
+const {ipcMain} = require('electron')
+var remote = null
+try {
+  remote = require('@electron/remote')
+} catch (e) {}
+const {readFileSync} = require('fs')
+const path = require('path')
+const {load: dolmLoad, getKey: dolmGetKey} = require('dolm')
+const languages = require('@sabaki/i18n')
+
 const isElectron = process.versions.electron != null
 const isRenderer = isElectron && remote != null
-const fs = require('fs')
-const dolm = require('dolm').load({})
 
-const mainI18n = isRenderer ? remote.require('./i18n') : exports
-const setting = isRenderer ? remote.require('./setting')
-    : isElectron ? nativeRequire('./setting')
-    : null
+const mainI18n = isRenderer ? remote.require('./i18n') : null
+const setting = isRenderer
+  ? remote.require('./setting')
+  : isElectron
+  ? nativeRequire('./setting')
+  : null
 
+function getKey(input, params = {}) {
+  let key = dolmGetKey(input, params)
+  return key.replace(/&(?=\w)/g, '')
+}
+
+const dolm = dolmLoad({}, getKey)
+
+let appLang = setting == null ? undefined : setting.get('app.lang')
+
+exports.getKey = getKey
 exports.t = dolm.t
 exports.context = dolm.context
 
-exports.loadStrings = function(strings) {
-    if (isRenderer && window.sabaki != null) {
-        mainI18n.loadStrings(strings)
-        sabaki.buildMenu()
-        sabaki.waitForRender()
-    }
+exports.formatNumber = function(num) {
+  return new Intl.NumberFormat(appLang).format(num)
+}
 
-    dolm.load(strings)
+exports.formatMonth = function(month) {
+  let date = new Date()
+  date.setMonth(month)
+  return date.toLocaleString(appLang, {month: 'long'})
+}
 
-    exports.strings = strings
-    exports.usedStrings = dolm.usedStrings
+exports.formatWeekday = function(weekday) {
+  let date = new Date(2020, 2, 1 + (weekday % 7))
+  return date.toLocaleString(appLang, {weekday: 'long'})
+}
+
+exports.formatWeekdayShort = function(weekday) {
+  let date = new Date(2020, 2, 1 + (weekday % 7))
+  return date.toLocaleString(appLang, {weekday: 'short'})
+}
+
+function loadStrings(strings) {
+  dolm.load(strings)
+
+  if (isElectron && !isRenderer) {
+    ipcMain.emit('build-menu')
+  }
 }
 
 exports.loadFile = function(filename) {
-    exports.loadStrings(nativeRequire(filename))
+  if (isRenderer) {
+    mainI18n.loadFile(filename)
+  }
+
+  try {
+    loadStrings(
+      Function(`
+        "use strict"
+
+        let exports = {}
+        let module = {exports}
+
+        ;(() => (${readFileSync(filename, 'utf8')}))()
+
+        return module.exports
+      `)()
+    )
+  } catch (err) {
+    loadStrings({})
+  }
 }
 
 exports.loadLang = function(lang) {
-    exports.loadFile(`${isRenderer ? '.' : '..'}/lang/${lang}.js`)
+  appLang = lang
+
+  exports.loadFile(languages[lang].filename)
 }
 
-exports.serialize = function(filename) {
-    if (isRenderer) {
-        // Merge with dolm serialization result in main process
-
-        let mainStrings = mainI18n.strings
-        let mainUsedStrings = mainI18n.usedStrings
-
-        for (context in mainStrings) {
-            exports.strings[context] = mainStrings[context]
-        }
-
-        for (context in mainUsedStrings) {
-            exports.usedStrings[context] = mainUsedStrings[context]
-        }
-    }
-
-    let result = dolm.serialize()
-    let js = `module.exports = ${result.js}`
-
-    fs.writeFileSync(filename, js)
-
-    return result
+exports.getLanguages = function() {
+  return languages
 }
 
-try {
-    exports.loadLang(setting.get('app.lang'))
-} catch (err) {
-    exports.loadStrings({})
-}
-
-if (isRenderer) {
-    setting.events.on('change', ({key, value}) => {
-        if (key !== 'app.lang') return
-
-        exports.loadLang(value)
-    })
+if (appLang != null) {
+  exports.loadLang(appLang)
 }

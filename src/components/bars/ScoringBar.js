@@ -1,36 +1,48 @@
-const {h, Component} = require('preact')
-const Bar = require('./Bar')
+import {h, Component} from 'preact'
+import Bar from './Bar.js'
 
-const t = require('../../i18n').context('ScoringBar')
-const helper = require('../../modules/helper')
+import i18n from '../../i18n.js'
+import sabaki from '../../modules/sabaki.js'
+import {getScore} from '../../modules/helper.js'
 
-class ScoringBar extends Component {
-    constructor() {
-        super()
+const t = i18n.context('ScoringBar')
 
-        this.handleButtonClick = () => sabaki.openDrawer('score')
-    }
+export default class ScoringBar extends Component {
+  constructor() {
+    super()
 
-    render({type, method, areaMap, scoreBoard, komi, handicap}) {
-        let score = scoreBoard && helper.getScore(scoreBoard, areaMap, {komi, handicap})
-        let result = score && (method === 'area' ? score.areaScore : score.territoryScore)
+    this.handleButtonClick = () => sabaki.openDrawer('score')
+  }
 
-        return h(Bar, Object.assign({type}, this.props),
-            h('div', {class: 'result'},
-                h('button', {onClick: this.handleButtonClick}, t('Details')),
-                h('strong', {},
-                    !result ? ''
-                    : result > 0 ? t(p => `B+${p.result}`, {result})
-                    : result < 0 ? t(p => `W+${p.result}`, {result: -result})
-                    : t('Draw')
-                ),
-            ), ' ',
+  render({type, method, areaMap, scoreBoard, komi, handicap}) {
+    let score = scoreBoard && getScore(scoreBoard, areaMap, {komi, handicap})
+    let result =
+      score && (method === 'area' ? score.areaScore : score.territoryScore)
 
-            type === 'scoring'
-            ? t('Please select dead stones.')
-            : t('Toggle group status.')
+    return h(
+      Bar,
+      Object.assign({type}, this.props),
+      h(
+        'div',
+        {class: 'result'},
+        h('button', {onClick: this.handleButtonClick}, t('Details')),
+        h(
+          'strong',
+          {},
+          result == null
+            ? ''
+            : result > 0
+            ? `B+${result}`
+            : result < 0
+            ? `W+${-result}`
+            : t('Draw')
         )
-    }
-}
+      ),
+      ' ',
 
-module.exports = ScoringBar
+      type === 'scoring'
+        ? t('Please select dead stones.')
+        : t('Toggle group status.')
+    )
+  }
+}
